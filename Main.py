@@ -4,5 +4,5 @@ from LockBot import LockBotFactory
 
 if __name__ == "__main__":
     chan = sys.argv[1]
-    reactor.connectTCP('irc.freenode.net', 6667, LockBotFactory('#' + chan))
+    reactor.connectTCP('localhost', 6667, LockBotFactory('#' + chan))
     reactor.run()
