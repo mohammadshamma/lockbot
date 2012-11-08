@@ -21,41 +21,67 @@ class LockBot(irc.IRCClient):
     def privmsg(self, user, channel, msg):
         print "received: %s" % msg
 
-        matchobj = re.match("^lock\((.*)\)", msg)
-        if matchobj:
-            resource = matchobj.group(1).strip()
-            print "This is a lock message to lock \"%s\"" % resource 
-            if resource in self.locks.keys():
-                if self.locks[resource]:
-                    print "Resource already locked (denied)"
-                else:
-                    print "Resource locked (granted)"
-                    self.locks[resource] = True
+        nick = user.strip().split('!')[0]
+        print "privmsg: user %s, nick %s, channel %s, msg %s" % \
+            (user, nick, channel, msg)
+
+        # Ignore my own messages
+        if nick == self.nickname:
+            return
+
+        # Snub private messages
+        if channel == self.nickname:
+            msg = "It isn't nice to whisper!  Play nice with the group."
+            self.msg(nick, msg)
+            return
+
+        # Is client talking to me?
+        targeted = msg.startswith(self.nickname + ':')
+        if targeted:
+            msg = msg[len(self.nickname + ':'):].lstrip()
+
+        # First process global commands
+        m = re.match("^lock\((.*)\)", msg)
+        if m:
+            resource = m.group(1).strip()
+            print("Request from %s to lock \"%s\"" % (nick,resource))
+            if resource in self.locks.keys() and self.locks[resource]:
+                self.msg(channel,
+                         "%s: DENIED, %s is already locked" %
+                         (nick, resource))
             else:
-                print "Creating resource (granted)"
                 self.locks[resource] = True
-
-        matchobj = re.match("^status.*", msg)
-        if matchobj:
-            print "The status is"
-            for k,v in self.locks.items():
-                print "resource:%s locked:%s" % (k,v)
-
-        matchobj = re.match("^unlock\((.*)\)", msg)
-        if matchobj:
-            resource = matchobj.group(1).strip()
-            if resource not in self.locks.keys():
-                print "Unidentified resource (ERROR)"
-            elif self.locks[resource]:
-                print "Resource unlocked (released)"
-                self.locks[resource] = False
+                self.msg(channel,
+                         "%s: GRANTED, %s's lock is all yours now" % 
+                         (nick, resource))
+   
+        m = re.match("^unlock\((.*)\)", msg)
+        if m:
+            resource = m.group(1).strip()
+            if resource not in self.locks.keys() or not self.locks[resource]:
+                self.msg(channel,
+                         "%s: ERROR, %s is already unlocked" % 
+                         (nick, resource))
             else:
-                print "Resource already unlocked (ERROR)"
+                self.locks[resource] = False
+                self.msg(channel,
+                         "%s: RELEASED, %s lock is free" %
+                         (nick, resource))
+
+        # If the message is targeted, process the rest of the commands
+        if not targeted:
+            return
+
+        m = re.match("^status.*", msg)
+        if m:
+            self.msg(channel, "Status of locks:")
+            for k,v in self.locks.items():
+                self.msg(channel, " resource:%s locked:%s" % (k,v))
 
 class LockBotFactory(protocol.ClientFactory):
     protocol = LockBot
 
-    def __init__(self, channel, nickname='YourLock'):
+    def __init__(self, channel, nickname='LockBot'):
         self.channel = channel
         self.nickname = nickname
 
