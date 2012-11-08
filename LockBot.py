@@ -84,7 +84,7 @@ class LockBot(irc.IRCClient):
 class LockBotFactory(protocol.ClientFactory):
     protocol = LockBot
 
-    def __init__(self, channel, nickname='LockBot'):
+    def __init__(self, channel, nickname='lockbot'):
         self.channel = channel
         self.nickname = nickname
 
