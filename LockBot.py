@@ -45,12 +45,12 @@ class LockBot(irc.IRCClient):
         if m:
             resource = m.group(1).strip()
             print("Request from %s to lock \"%s\"" % (nick,resource))
-            if resource in self.locks.keys() and self.locks[resource]:
+            if resource in self.locks.keys():
                 self.msg(channel,
                          "%s: DENIED, %s is already locked" %
                          (nick, resource))
             else:
-                self.locks[resource] = True
+                self.locks[resource] = nick
                 self.msg(channel,
                          "%s: GRANTED, %s's lock is all yours now" % 
                          (nick, resource))
@@ -58,12 +58,12 @@ class LockBot(irc.IRCClient):
         m = re.match("^unlock\((.*)\)", msg)
         if m:
             resource = m.group(1).strip()
-            if resource not in self.locks.keys() or not self.locks[resource]:
+            if resource not in self.locks.keys():
                 self.msg(channel,
                          "%s: ERROR, %s is already unlocked" % 
                          (nick, resource))
             else:
-                self.locks[resource] = False
+                del self.locks[resource]
                 self.msg(channel,
                          "%s: RELEASED, %s lock is free" %
                          (nick, resource))
@@ -74,9 +74,12 @@ class LockBot(irc.IRCClient):
 
         m = re.match("^status.*", msg)
         if m:
-            self.msg(channel, "Status of locks:")
-            for k,v in self.locks.items():
-                self.msg(channel, " resource:%s locked:%s" % (k,v))
+            if len(self.locks) == 0:
+                self.msg(channel, "%s: There are no locked resources" % nick )
+            else:
+                self.msg(channel, "%s: Status of locked resources:" % nick)
+                for k,v in self.locks.items():
+                    self.msg(channel, " resource:%s owner:%s" % (k,v))
 
 class LockBotFactory(protocol.ClientFactory):
     protocol = LockBot
