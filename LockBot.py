@@ -46,9 +46,10 @@ class LockBot(irc.IRCClient):
             resource = m.group(1).strip()
             print("Request from %s to lock \"%s\"" % (nick,resource))
             if resource in self.locks.keys():
+                owner = self.locks[resource]
                 self.msg(channel,
-                         "%s: DENIED, %s is already locked" %
-                         (nick, resource))
+                         "%s: DENIED, %s is already locked by %s" %
+                         (nick, resource, owner))
             else:
                 self.locks[resource] = nick
                 self.msg(channel,
