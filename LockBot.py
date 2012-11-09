@@ -69,7 +69,7 @@ class LockBot(irc.IRCClient):
             resource = m.group(1).strip()
             if resource not in self.locks.keys():
                 self.msg(channel,
-                         "%s: ERROR, %s is already unlocked" % 
+                         "%s: ERROR, %s is already free" % 
                          (nick, resource))
             else:
                 del self.locks[resource]
