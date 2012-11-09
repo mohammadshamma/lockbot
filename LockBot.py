@@ -2,10 +2,18 @@ from twisted.words.protocols import irc
 from twisted.internet import protocol
 
 import re
+import os
+import dumbdbm
+
+DBDIR  = 'db'
+DBNAME = 'locks'
 
 class LockBot(irc.IRCClient):
     def __init__(self):
-        self.locks = {}
+        if not os.path.isdir(DBDIR):
+            os.mkdir(DBDIR)
+        dbpath = os.path.join(DBDIR, DBNAME)
+        self.locks = dumbdbm.open(dbpath)
     
     def _get_nickname(self):
         return self.factory.nickname
