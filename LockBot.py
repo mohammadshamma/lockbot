@@ -14,6 +14,7 @@ class LockBot(irc.IRCClient):
             os.mkdir(DBDIR)
         dbpath = os.path.join(DBDIR, DBNAME)
         self.locks = dumbdbm.open(dbpath)
+        self.password = 'testing'
     
     def _get_nickname(self):
         return self.factory.nickname
