@@ -14,11 +14,18 @@ class LockBot(irc.IRCClient):
             os.mkdir(DBDIR)
         dbpath = os.path.join(DBDIR, DBNAME)
         self.locks = dumbdbm.open(dbpath)
-        self.password = 'testing'
     
     def _get_nickname(self):
         return self.factory.nickname
     nickname = property(_get_nickname)
+
+    def _get_password(self):
+        return self.factory.password
+    password = property(_get_password)
+
+    def _get_dbdir(self):
+        return self.factory.dbdir
+    dbdir = property(_get_dbdir)
 
     def signedOn(self):
         self.join(self.factory.channel)
@@ -94,9 +101,10 @@ class LockBot(irc.IRCClient):
 class LockBotFactory(protocol.ClientFactory):
     protocol = LockBot
 
-    def __init__(self, channel, nickname='lockbot'):
+    def __init__(self, channel, nickname, dbdir, password=None):
         self.channel = channel
         self.nickname = nickname
+        self.password = password
 
     def clientConnectionLost(self, connector, reason):
         print "Lost connection (%s), reconnecting." % (reason,)
