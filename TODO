@@ -1,5 +1,4 @@
 TODOs:
-- daemonize the process (option to run in foreground)
-- read configuration (irc server, password, channel, nickname, db location)
 - bot help command
-- debian packaging
+- getopts (--daemonize, --help)
+- daemonize the process (option to run in foreground)
