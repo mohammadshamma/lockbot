@@ -54,12 +54,13 @@ class LockBotBrain(object):
 
     def getRules(self):
         rules = [
-            ('^\s*(?:@BOTNAME@:)?\s*lock\((.*)\)$',   self.lock),
-            ('^\s*lock(?:\s.*)?$',                    self.malformedlock),
-            ('^\s*(?:@BOTNAME@:)?\s*unlock\((.*)\)$', self.unlock),
-            ('^\s*unlock(?:\s.*)?$',                  self.malformedunlock),
-            ('@BOTNAME@:\s*status\s*$',               self.status),
-            ('@BOTNAME@:.*',                          self.defaulthandler),
+            ('^\s*(?:@BOTNAME@:)?\s*lock\((.*)\)$',     self.lock),
+            ('^\s*lock(?:\s.*)?$',                      self.malformedlock),
+            ('^\s*(?:@BOTNAME@:)?\s*unlock\((.*)\)$',   self.unlock),
+            ('^\s*(?:@BOTNAME@:)?\s*freelock\((.*)\)$', self.freelock),
+            ('^\s*unlock(?:\s.*)?$',                    self.malformedunlock),
+            ('@BOTNAME@:\s*status\s*$',                 self.status),
+            ('@BOTNAME@:.*',                            self.defaulthandler),
         ]
         return rules
 
@@ -88,10 +89,32 @@ class LockBotBrain(object):
                     "%s: ERROR, %s is already free" % 
                     (nick, resource))
         else:
-            del self.locks[resource]
+            lockowner = self.locks[resource]
+            if lockowner == nick:
+                del self.locks[resource]
+                return (channel,
+                        "%s: RELEASED, %s lock is free" %
+                        (nick, resource))
+            else:
+                return (channel,
+                        "%s: ERROR, %s holds the lock on %s" %
+                        (nick, lockowner, resource))
+
+    def freelock(self, nick, channel, resource):
+        if resource not in self.locks.keys():
             return (channel,
-                    "%s: RELEASED, %s lock is free" %
+                    "%s: ERROR, %s is already free" % 
                     (nick, resource))
+        else:
+            lockowner = self.locks[resource]
+            del self.locks[resource]
+            return [(channel,
+                     "%s: RELEASED, %s lock is free" %
+                     (nick, resource)),
+                    (channel,
+                     "%s: your %s's lock has been released by %s" %
+                     (lockowner, resource, nick))
+                    ]
         
     def malformedunlock(self, nick, channel):
         messages = [
