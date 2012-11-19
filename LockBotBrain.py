@@ -147,6 +147,6 @@ class LockBotBrain(object):
         return [(channel, message) for message in messages]
 
     def defaulthandler(self, nick, channel):
-        messages = [(channel, "%s: Unrecognized command" % nick)]
-        messages += self.help(nick, channel)
+        messages = [(channel,
+                     "%s: Unrecognized command, try 'lockbot: help'" % nick)]
         return messages
