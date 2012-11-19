@@ -1,4 +1,3 @@
 TODOs:
-- bot help command
 - getopts (--daemonize, --help)
 - daemonize the process (option to run in foreground)
