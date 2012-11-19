@@ -60,6 +60,7 @@ class LockBotBrain(object):
             ('^\s*(?:@BOTNAME@:)?\s*freelock\((.*)\)$', self.freelock),
             ('^\s*unlock(?:\s.*)?$',                    self.malformedunlock),
             ('@BOTNAME@:\s*status\s*$',                 self.status),
+            ('@BOTNAME@:\s*help\s*$',                   self.help),
             ('@BOTNAME@:.*',                            self.defaulthandler),
         ]
         return rules
@@ -133,6 +134,19 @@ class LockBotBrain(object):
                          for k,v in self.locks.items()]
             return messages
 
-    def defaulthandler(self, nick, channel):
-        return (channel, "%s: Unrecognized command" % nick)
+    def help(self, nick, channel):
+        messages = [
+            "%s: List of lockbot commands:" % nick,
+            " lock(RESOURCE):     take hold of a lock on a resource",
+            " unlock(RESOURCE):   release the resource lock",
+            " freelock(RESOURCE): release a resource lock even if the caller",
+            "                     does not hold the lock (USE WITH CAUTION).",
+            " status:             display locked resources status.",
+            " help:               display this help message."
+            ]
+        return [(channel, message) for message in messages]
 
+    def defaulthandler(self, nick, channel):
+        messages = [(channel, "%s: Unrecognized command" % nick)]
+        messages += self.help(nick, channel)
+        return messages
