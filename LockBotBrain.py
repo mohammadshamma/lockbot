@@ -79,7 +79,7 @@ class LockBotBrain(object):
 
     def malformedlock(self, nick, channel):
         messages = [
-            (channel, "%s: where you trying to lock a resource?" % nick),
+            (channel, "%s: were you trying to lock a resource?" % nick),
             (channel, "%s: if so, try \"lock(<RESOURCE>)\" instead" % nick)
             ]
         return messages
