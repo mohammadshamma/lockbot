@@ -2,8 +2,20 @@ import re
 import os
 import dumbdbm
 
-DBDIR  = 'db'
+DBDIR  = 'lockbot_db'
 DBNAME = 'locks'
+
+class LockBotException(Exception):
+    def __init__(self, msg):
+        super(LockBotException, self).__init__()
+        self.msg = msg
+
+    def getMessages(self, nick, channel, resourcestr, verb):
+        if ',' in resourcestr:
+            return [(channel, '%s: %s' % (nick, self.msg)),
+                    (channel, "%s: no resources %s" % (nick, verb))]
+        else:
+            return (channel, self.msg)
 
 class LockBotBrain(object):
 
@@ -55,98 +67,195 @@ class LockBotBrain(object):
     def getRules(self):
         rules = [
             ('^\s*(?:@BOTNAME@:)?\s*lock\((.*)\)$',     self.lock),
-            ('^\s*lock(?:\s.*)?$',                      self.malformedlock),
+            ('^\s*(?:@BOTNAME@:)?\s*lock\s+(.*)$',      self.lock),
             ('^\s*(?:@BOTNAME@:)?\s*unlock\((.*)\)$',   self.unlock),
-            ('^\s*(?:@BOTNAME@:)?\s*freelock\((.*)\)$', self.freelock),
-            ('^\s*unlock(?:\s.*)?$',                    self.malformedunlock),
+            ('^\s*(?:@BOTNAME@:)?\s*unlock\s+(.*)$',    self.unlock),
+            ('@BOTNAME@:\s*freelock\((.*)\)$',          self.freelock),
+            ('@BOTNAME@:\s*freelock\s+(.*)$',           self.freelock),
+            ('@BOTNAME@:\s*register\((.*)\)$',          self.register),
+            ('@BOTNAME@:\s*register\s+(.*)$',           self.register),
+            ('@BOTNAME@:\s*unregister\((.*)\)$',        self.unregister),
+            ('@BOTNAME@:\s*unregister\s+(.*)$',         self.unregister),
             ('@BOTNAME@:\s*status\s*$',                 self.status),
+            ('@BOTNAME@:\s*listlocked\s*$',             self.status),
+            ('@BOTNAME@:\s*listfree\s*$',               self.listfree),
+            ('@BOTNAME@:\s*list\s*$',                   self.list),
             ('@BOTNAME@:\s*help\s*$',                   self.help),
             ('@BOTNAME@:.*',                            self.defaulthandler),
         ]
         return rules
 
-    def lock(self, nick, channel, resource):
-        if resource in self.locks.keys():
-            owner = self.locks[resource]
-            return (channel,
-                    "%s: DENIED, %s is already locked by %s" %
-                    (nick, resource, owner))
-        else:
-            self.locks[resource] = nick
-            return (channel,
-                    "%s: GRANTED, %s's lock is all yours now" % 
-                    (nick, resource))
+    def splitResources(self, s):
+        results = [i.strip() for i in s.split(',')]
+        if '' in results:
+            raise LockBotException('ERROR: empty resource names are not allowed')
+        if len(results) != len(set(results)):
+            raise LockBotException('ERROR: duplicate resource name')
+        return results, len(results) > 1
 
-    def malformedlock(self, nick, channel):
-        messages = [
-            (channel, "%s: were you trying to lock a resource?" % nick),
-            (channel, "%s: if so, try \"lock(<RESOURCE>)\" instead" % nick)
-            ]
-        return messages
+    def lock(self, nick, channel, resourcestr):
+        try:
+            resources, multi = self.splitResources(resourcestr)
+            # iterate over all resources once to check for errors
+            for r in resources:
+                if r not in self.locks.keys():
+                    raise LockBotException('ERROR: unrecognized resource "%s"' % r)
+                elif self.locks[r] == nick:
+                    raise LockBotException("you already hold the lock for resource %s" % r)
+                elif self.locks[r] and self.locks[r] != nick:
+                    raise LockBotException("DENIED, %s is already locked by %s" %
+                                           (r, self.locks[r]))
+        except LockBotException as exc:
+            return exc.getMessages(nick, channel, resourcestr, 'locked')
 
-    def unlock(self, nick, channel, resource):
-        if resource not in self.locks.keys():
-            return (channel,
-                    "%s: ERROR, %s is already free" % 
-                    (nick, resource))
-        else:
-            lockowner = self.locks[resource]
-            if lockowner == nick:
-                del self.locks[resource]
-                return (channel,
-                        "%s: RELEASED, %s lock is free" %
-                        (nick, resource))
-            else:
-                return (channel,
-                        "%s: ERROR, %s holds the lock on %s" %
-                        (nick, lockowner, resource))
+        # all clear, perform lock
+        for r in resources:
+            self.locks[r] = nick
+        return (channel,
+                    "%s: GRANTED, resource%s %s %s all yours" %
+                    (nick,
+                     's' if multi else '',
+                     ', '.join(resources),
+                     'are' if multi else 'is',
+                     ))
 
-    def freelock(self, nick, channel, resource):
-        if resource not in self.locks.keys():
-            return (channel,
-                    "%s: ERROR, %s is already free" % 
-                    (nick, resource))
-        else:
-            lockowner = self.locks[resource]
-            del self.locks[resource]
-            return [(channel,
-                     "%s: RELEASED, %s lock is free" %
-                     (nick, resource)),
-                    (channel,
-                     "%s: your %s's lock has been released by %s" %
-                     (lockowner, resource, nick))
-                    ]
-        
-    def malformedunlock(self, nick, channel):
-        messages = [
-            (channel, "%s: where you trying to unlock a resource?" % nick),
-            (channel, "%s: if so, try \"unlock(<RESOURCE>)\" instead" % nick)
-            ]
-        return messages
+    def register(self, nick, channel, resourcestr):
+        try:
+            resources, multi = self.splitResources(resourcestr)
+            for r in resources:
+                if r in self.locks.keys():
+                    raise LockBotException('ERROR, resource "%s" is already registered' % r)
+        except LockBotException as exc:
+            return exc.getMessages(nick, channel, resourcestr, 'registered')
+
+        # all clear, register resources
+        for r in resources:
+            self.locks[r] = ''
+        return (channel,
+            "%s: registered resource%s %s" %
+                (nick,
+                 's' if multi else '',
+                 ', '.join(resources)))
+
+    def unregister(self, nick, channel, resourcestr):
+        try:
+            resources, multi = self.splitResources(resourcestr)
+            for r in resources:
+                if r not in self.locks.keys():
+                    raise LockBotException('ERROR, unrecognized resource "%s"' % r)
+                elif self.locks[r]:
+                    raise LockBotException('ERROR, resource "%s" is locked by %s' %
+                                           (r, self.locks[r]))
+        except LockBotException as exc:
+            return exc.getMessages(nick, channel, resourcestr, 'unregistered')
+
+        # all clear, unregister resources
+        for r in resources:
+            del self.locks[r]
+        return (channel,
+            "%s: removed resource%s %s" %
+                (nick,
+                 's' if multi else '',
+                 ', '.join(resources)))
+
+    def unlock(self, nick, channel, resourcestr):
+        try:
+            resources, multi = self.splitResources(resourcestr)
+            # iterate over all resources once to check for errors
+            for r in resources:
+                if r not in self.locks.keys():
+                    raise LockBotException('ERROR: unrecognized resource "%s"' % r)
+                elif self.locks[r] == '':
+                    raise LockBotException("%s is already free" % r)
+                elif self.locks[r] != nick:
+                    raise LockBotException("DENIED, %s holds the lock on %s" %
+                                           (self.locks[r], r))
+        except LockBotException as exc:
+            return exc.getMessages(nick, channel, resourcestr, 'unlocked')
+
+        # all clear, perform unlock
+        for r in resources:
+            self.locks[r] = ''
+        return (channel,
+                    "%s: RELEASED, resource%s %s %s free" %
+                    (nick,
+                     's' if multi else '',
+                     ', '.join(resources),
+                     'are' if multi else 'is',
+                     ))
+
+    def freelock(self, nick, channel, resourcestr):
+        try:
+            resources, multi = self.splitResources(resourcestr)
+            # iterate over all resources once to check for errors
+            for r in resources:
+                if r not in self.locks.keys():
+                    raise LockBotException('ERROR: unrecognized resource "%s"' % r)
+                if not self.locks[r]:
+                    raise LockBotException('ERROR: resource %s is already unlocked' % r)
+        except LockBotException as exc:
+            return exc.getMessages(nick, channel, resourcestr, 'unlocked')
+
+        # all clear, perform freelock
+        msgs = [(channel,
+                 "%s: RELEASED, resource%s %s %s free" %
+                 (nick,
+                  's' if multi else '',
+                  ', '.join(resources),
+                  'are' if multi else 'is',
+                  ))]
+
+        for r in resources:
+            lockowner = self.locks[r]
+            self.locks[r] = ''
+            msgs += [(channel,
+                      "%s: your lock on %s has been released by %s" %
+                      (lockowner, r, nick))]
+        return msgs
 
     def status(self, nick, channel):
-        if len(self.locks) == 0:
-            return (channel, "%s: There are no locked resources" % nick)
+        lockeditems = sorted([item[0] for item in self.locks.items() if item[1]])
+        if len(lockeditems) == 0:
+            return (channel, "There are no locked resources")
         else:
             messages  = []
-            messages += [(channel, "%s: Status of locked resources:" % nick)]
-            messages += [(channel, " resource:%s owner:%s" % (k,v))
-                         for k,v in self.locks.items()]
+            messages += [(channel, "Status of locked resources:")]
+            messages += [(channel, "  resource:%s owner:%s" % (k, self.locks[k]))
+                         for k in lockeditems]
             return messages
+
+    def listfree(self, nick, channel):
+        freeitems = [item[0] for item in self.locks.items() if not item[1]]
+        if len(freeitems) == 0:
+            return (channel, "There are no unlocked resources")
+        else:
+            return (channel, "Unlocked resources: " + ', '.join(freeitems))
+
+    def list(self, nick, channel):
+        if len(self.locks.keys()) == 0:
+            return (channel, "There are no registered resources")
+        else:
+            return (channel, "List of registered resources: %s" %
+                    ', '.join(sorted(self.locks.keys())))
 
     def help(self, nick, channel):
         messages = [
-            "%s: List of lockbot commands:" % nick,
-            " lock(RESOURCE):     take hold of a lock on a resource",
-            " unlock(RESOURCE):   release the resource lock",
-            " freelock(RESOURCE): release a resource lock even if the caller",
-            "                     does not hold the lock (USE WITH CAUTION).",
-            " status:             display locked resources status.",
-            " help:               display this help message."
+            "List of lockbot commands:",
+            " lock <resource>       take hold of a lock on a resource",
+            " unlock <resource>     release the resource lock",
+            " freelock <resource>   release a resource lock even if the caller",
+            "                       does not hold the lock (USE WITH CAUTION)",
+            " register <resource>   add a new resource to the database",
+            " unregister <resource> remove a resource from the database",
+            " status                list locked resources and their owners",
+            " listlocked            see \"status\"",
+            " listfree              list unlocked resources",
+            " list:                 list all registered resources",
+            " help:                 display this help message"
             ]
         return [(channel, message) for message in messages]
 
     def defaulthandler(self, nick, channel):
         messages = [(channel,
-                     "%s: Unrecognized command, try 'lockbot: help'" % nick)]
+                     "%s: Unrecognized command, try '%s: help'" % (nick, self.nickname))]
         return messages
