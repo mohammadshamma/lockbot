@@ -2,7 +2,7 @@ import re
 import os
 import dumbdbm
 
-import logger
+import Logger
 
 DBDIR  = 'lockbot_db'
 DBNAME = 'locks'
@@ -30,7 +30,7 @@ class LockBotBrain(object):
         self.locks = dumbdbm.open(dbpath)
         self.nickname = nickname
         self.rules = self.interpolateRules(nickname)
-        self.logger = logger.Logger()
+        self.logger = Logger.Logger()
 
     def interpolateRules(self, nickname):
         rules = self.getRules()
