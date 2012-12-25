@@ -23,7 +23,7 @@ class LockBot(irc.IRCClient):
 
     def signedOn(self):
         self.logger.info("Signed on as %s." % (self.nickname))
-        self.brain = LockBotBrain(self.nickname)
+        self.brain = LockBotBrain(self.nickname, self.dbdir)
         self.join(self.factory.channel)
 
     def joined(self, channel):
@@ -43,6 +43,7 @@ class LockBotFactory(protocol.ClientFactory):
         self.channel = channel
         self.nickname = nickname
         self.password = password
+        self.dbdir = dbdir
         self.logger = Logger.Logger()
 
     def clientConnectionLost(self, connector, reason):

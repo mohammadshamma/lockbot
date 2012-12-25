@@ -4,7 +4,6 @@ import dumbdbm
 
 import Logger
 
-DBDIR  = 'lockbot_db'
 DBNAME = 'locks'
 
 class LockBotException(Exception):
@@ -21,11 +20,11 @@ class LockBotException(Exception):
 
 class LockBotBrain(object):
 
-    def __init__(self, nickname):
+    def __init__(self, nickname, dbdir):
 
-        if not os.path.isdir(DBDIR):
-            os.mkdir(DBDIR)
-        dbpath = os.path.join(DBDIR, DBNAME)
+        if not os.path.isdir(dbdir):
+            os.mkdir(dbdir)
+        dbpath = os.path.join(dbdir, DBNAME)
 
         self.locks = dumbdbm.open(dbpath)
         self.nickname = nickname
