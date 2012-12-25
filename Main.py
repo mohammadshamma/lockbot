@@ -4,7 +4,8 @@ from LockBot import LockBotFactory
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print "You should pass only one argument (configuration path)"
+        sys.stderr.write("You should pass only one argument "
+                         "(configuration path)\n")
         sys.exit(1)
     cfgpath = sys.argv[1]
 
