@@ -2,6 +2,8 @@ import re
 import os
 import dumbdbm
 
+import logger
+
 DBDIR  = 'lockbot_db'
 DBNAME = 'locks'
 
@@ -28,6 +30,7 @@ class LockBotBrain(object):
         self.locks = dumbdbm.open(dbpath)
         self.nickname = nickname
         self.rules = self.interpolateRules(nickname)
+        self.logger = logger.Logger()
 
     def interpolateRules(self, nickname):
         rules = self.getRules()
@@ -41,8 +44,8 @@ class LockBotBrain(object):
     def processPrivMsg(self, user, channel, msg):
 
         nick = user.strip().split('!')[0]
-        print "privmsg: user %s, nick %s, channel %s, msg %s" % \
-            (user, nick, channel, msg)
+        self.logger.debug("privmsg: user %s, nick %s, channel %s, msg %s" % \
+                              (user, nick, channel, msg))
 
         # Ignore my own messages
         if nick == self.nickname:

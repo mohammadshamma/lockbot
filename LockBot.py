@@ -2,10 +2,12 @@ from twisted.words.protocols import irc
 from twisted.internet import protocol
 
 from LockBotBrain import LockBotBrain
+import logger
 
 class LockBot(irc.IRCClient):
     def __init__(self):
         self.brain = None
+        self.logger = logger.Logger()
 
     def _get_nickname(self):
         return self.factory.nickname
@@ -20,15 +22,15 @@ class LockBot(irc.IRCClient):
     dbdir = property(_get_dbdir)
 
     def signedOn(self):
-        print "Signed on as %s." % (self.nickname)
+        self.logger.info("Signed on as %s." % (self.nickname))
         self.brain = LockBotBrain(self.nickname)
         self.join(self.factory.channel)
 
     def joined(self, channel):
-        print "Joined %s." % (channel)
+        self.logger.info("Joined %s." % (channel))
 
     def privmsg(self, user, channel, msg):
-        print "received: %s" % msg
+        self.logger.debug("received: %s" % msg)
 
         responses = self.brain.processPrivMsg(user, channel, msg)
         for channel, message in responses:
@@ -41,10 +43,11 @@ class LockBotFactory(protocol.ClientFactory):
         self.channel = channel
         self.nickname = nickname
         self.password = password
+        self.logger = logger.Logger()
 
     def clientConnectionLost(self, connector, reason):
-        print "Lost connection (%s), reconnecting." % (reason,)
+        self.logger.critical("Lost connection (%s), reconnecting." % (reason,))
         connector.connect()
 
     def clientConnectionFailed(self, connector, reason):
-        print "Could not connect: %s" % (reason,)
+        self.logger.critical("Could not connect: %s" % (reason,))
