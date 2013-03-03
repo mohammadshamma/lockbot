@@ -1,6 +1,7 @@
 import re
 import os
 import dumbdbm
+import inspect
 
 import Logger
 
@@ -105,6 +106,7 @@ class LockBotBrain(object):
         return results, len(results) > 1
 
     def lock(self, nick, channel, resourcestr):
+        """take hold of a lock on a resource"""
         resources, multi = self.splitResources(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
@@ -131,6 +133,7 @@ class LockBotBrain(object):
                      ))
 
     def register(self, nick, channel, resourcestr):
+        """add a new resource to the database"""
         resources, multi = self.splitResources(resourcestr)
         for r in resources:
             if r in self.locks.keys():
@@ -147,6 +150,7 @@ class LockBotBrain(object):
                  ', '.join(resources)))
 
     def unregister(self, nick, channel, resourcestr):
+        """remove a resource from the database"""
         resources, multi = self.splitResources(resourcestr)
         for r in resources:
             if r not in self.locks.keys():
@@ -167,6 +171,7 @@ class LockBotBrain(object):
                  ', '.join(resources)))
 
     def unlock(self, nick, channel, resourcestr):
+        """release the resource lock"""
         resources, multi = self.splitResources(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
@@ -193,6 +198,7 @@ class LockBotBrain(object):
                      ))
 
     def freelock(self, nick, channel, resourcestr):
+        """release a resource lock even if the caller does not hold the lock (USE WITH CAUTION)"""
         resources, multi = self.splitResources(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
@@ -221,6 +227,7 @@ class LockBotBrain(object):
         return msgs
 
     def status(self, nick, channel):
+        """list locked resources and their owners"""
         lockeditems = sorted([item[0] for item in self.locks.items() if item[1]])
         if len(lockeditems) == 0:
             return (channel, "There are no locked resources")
@@ -232,6 +239,7 @@ class LockBotBrain(object):
             return messages
 
     def listfree(self, nick, channel):
+        """list unlocked resources"""
         freeitems = [item[0] for item in self.locks.items() if not item[1]]
         if len(freeitems) == 0:
             return (channel, "There are no unlocked resources")
@@ -239,6 +247,7 @@ class LockBotBrain(object):
             return (channel, "Unlocked resources: " + ', '.join(freeitems))
 
     def list(self, nick, channel):
+        """list all registered resources"""
         if len(self.locks.keys()) == 0:
             return (channel, "There are no registered resources")
         else:
@@ -246,20 +255,35 @@ class LockBotBrain(object):
                     ', '.join(sorted(self.locks.keys())))
 
     def help(self, nick, channel):
-        messages = [
-            "List of lockbot commands:",
-            " lock <resource>       take hold of a lock on a resource",
-            " unlock <resource>     release the resource lock",
-            " freelock <resource>   release a resource lock even if the caller",
-            "                       does not hold the lock (USE WITH CAUTION)",
-            " register <resource>   add a new resource to the database",
-            " unregister <resource> remove a resource from the database",
-            " status                list locked resources and their owners",
-            " listlocked            see \"status\"",
-            " listfree              list unlocked resources",
-            " list:                 list all registered resources",
-            " help:                 display this help message"
-            ]
+        """display this help message"""
+
+        def getCmdArguments(handler):
+            return inspect.getargspec(handler)[0][3:]
+
+        helpTuples = []
+        rules = self.getRules()
+        processedHandlers = set()
+        for _, handler in rules:
+            if handler in processedHandlers:
+                continue
+            processedHandlers.add(handler)
+            helpTuples.append((handler.__name__ + ' ' +
+                               ' '.join(["<%s>" % arg
+                                         for arg in getCmdArguments(handler)]),
+                               handler.__doc__
+                               ))
+            if handler.__name__ == 'help':
+                break
+
+        padding = max([len(cmdpart) for cmdpart, _ in helpTuples])
+
+        messages = ["List of lockbot commands:"]
+        for cmdpart, description in helpTuples:
+            message = " %s:%s%s" % (cmdpart,
+                                    (padding - len(cmdpart) + 1) * ' ',
+                                    description if description else 'N/A')
+            messages.append(message)
+
         return [(channel, message) for message in messages]
 
     def defaulthandler(self, nick, channel):
