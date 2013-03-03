@@ -81,6 +81,8 @@ class LockBotBrain(object):
             ('^\s*(?:@BOTNAME@:)?\s*lock\s+(.*)$',      self.lock),
             ('^\s*(?:@BOTNAME@:)?\s*unlock\((.*)\)$',   self.unlock),
             ('^\s*(?:@BOTNAME@:)?\s*unlock\s+(.*)$',    self.unlock),
+            ('@BOTNAME@:\s*assignlock\((.*?),(.*)\)$',  self.assignlock),
+            ('@BOTNAME@:\s*assignlock\s+(.*)\s+(.*)$',  self.assignlock),
             ('@BOTNAME@:\s*freelock\((.*)\)$',          self.freelock),
             ('@BOTNAME@:\s*freelock\s+(.*)$',           self.freelock),
             ('@BOTNAME@:\s*register\((.*)\)$',          self.register),
@@ -105,32 +107,34 @@ class LockBotBrain(object):
             raise LockBotException('ERROR: duplicate resource name')
         return results, len(results) > 1
 
-    def lock(self, nick, channel, resourcestr):
-        """take hold of a lock on a resource"""
+    def _lock(self, caller, assignee, resourcestr):
         resources, multi = self.splitResources(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
             if r not in self.locks.keys():
                 raise LockBotException('ERROR: unrecognized resource "%s"' % r,
                                        resourcestr, self.verb)
-            elif self.locks[r] == nick:
-                raise LockBotException("you already hold the lock for resource %s" % r,
+            elif self.locks[r] == assignee:
+                raise LockBotException("%s already hold the lock for resource %s" %
+                                       ('you' if self.locks[r] == caller else assignee, r),
                                        resourcestr, self.verb)
-            elif self.locks[r] and self.locks[r] != nick:
+            elif self.locks[r] and self.locks[r] != assignee:
                 raise LockBotException("DENIED, %s is already locked by %s" %
                                        (r, self.locks[r]),
                                        resourcestr, self.verb)
 
         # all clear, perform lock
         for r in resources:
-            self.locks[r] = nick
-        return (channel,
-                    "%s: GRANTED, resource%s %s %s all yours" %
-                    (nick,
-                     's' if multi else '',
-                     ', '.join(resources),
-                     'are' if multi else 'is',
-                     ))
+            self.locks[r] = assignee
+        return "%s: GRANTED, resource%s %s %s all yours" %  (assignee,
+                                                             's' if multi else '',
+                                                             ', '.join(resources),
+                                                             'are' if multi else 'is',
+                                                             )
+
+    def lock(self, nick, channel, resourcestr):
+        """take hold of a lock on a resource"""
+        return (channel, self._lock(nick, nick, resourcestr))
 
     def register(self, nick, channel, resourcestr):
         """add a new resource to the database"""
@@ -196,6 +200,10 @@ class LockBotBrain(object):
                      ', '.join(resources),
                      'are' if multi else 'is',
                      ))
+
+    def assignlock(self, nick, channel, assignee, resourcestr):
+        """assign a resource lock to someone else other than the caller"""
+        return (channel, self._lock(nick, assignee, resourcestr))
 
     def freelock(self, nick, channel, resourcestr):
         """release a resource lock even if the caller does not hold the lock (USE WITH CAUTION)"""
