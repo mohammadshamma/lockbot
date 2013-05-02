@@ -7,6 +7,9 @@ import Logger
 
 DBNAME = 'locks'
 
+def cleannick(nick):
+    return nick.rstrip('_')
+
 class LockBotException(Exception):
     def __init__(self, msg, resourcestr, verb):
         super(LockBotException, self).__init__()
@@ -67,7 +70,7 @@ class LockBotBrain(object):
                 args = m.groups()
                 self.verb = handler.__name__ + 'ed'
                 try:
-                    response = handler(nick, channel, *args)
+                    response = handler(cleannick(nick), channel, *args)
                 except LockBotException as exc:
                     response = self.getErrorMessages(nick, channel, exc)
                 self.verb = None
