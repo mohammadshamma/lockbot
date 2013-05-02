@@ -56,8 +56,10 @@ class LockBotBrain(object):
 
         # Snub private messages
         if channel == self.nickname:
-            msg = "It isn't nice to whisper! Play nice with the group."
-            return [(nick, msg)]
+        #    msg = "It isn't nice to whisper! Play nice with the group."
+        #    return [(nick, msg)]
+            msg = '%s: %s' % (self.nickname, msg)
+            channel = nick
 
         for regexp, handler in self.rules:
             m = re.match(regexp, msg)
