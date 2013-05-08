@@ -3,6 +3,8 @@ import os
 import dumbdbm
 import inspect
 
+import Levenshtein
+
 import Logger
 
 DBNAME = 'locks'
@@ -103,6 +105,18 @@ class LockBotBrain(object):
         ]
         return rules
 
+    def getlock(self, name):
+        if name in self.locks:
+            return name
+
+        ratios = [(Levenshtein.ratio(name, l), l) for l in self.locks]
+        best = max(ratios)
+
+        if best[0] < 0.5 or len([c for c in ratios if c[0] == best[0]]) > 1:
+            return name
+
+        return best[1]
+
     def splitResources(self, resourcestr):
         results = [i.strip() for i in resourcestr.split(',')]
         if '' in results:
@@ -114,6 +128,7 @@ class LockBotBrain(object):
 
     def _lock(self, caller, assignee, resourcestr):
         resources, multi = self.splitResources(resourcestr)
+        resources = [self.getlock(r) for r in resources]
         # iterate over all resources once to check for errors
         for r in resources:
             if r not in self.locks.keys():
@@ -182,6 +197,7 @@ class LockBotBrain(object):
     def unlock(self, nick, channel, resourcestr):
         """release the resource lock"""
         resources, multi = self.splitResources(resourcestr)
+        resources = [self.getlock(r) for r in resources]
         # iterate over all resources once to check for errors
         for r in resources:
             if r not in self.locks.keys():
@@ -213,6 +229,7 @@ class LockBotBrain(object):
     def freelock(self, nick, channel, resourcestr):
         """release a resource lock even if the caller does not hold the lock (USE WITH CAUTION)"""
         resources, multi = self.splitResources(resourcestr)
+        resources = [self.getlock(r) for r in resources]
         # iterate over all resources once to check for errors
         for r in resources:
             if r not in self.locks.keys():
