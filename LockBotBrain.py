@@ -126,15 +126,21 @@ class LockBotBrain(object):
             raise LockBotException('ERROR: duplicate resource name')
         return results, len(results) > 1
 
-    def _lock(self, caller, assignee, resourcestr):
+    def getlocks(self, resourcestr):
         resources, multi = self.splitResources(resourcestr)
         resources = [self.getlock(r) for r in resources]
-        # iterate over all resources once to check for errors
         for r in resources:
             if r not in self.locks.keys():
                 raise LockBotException('ERROR: unrecognized resource "%s"' % r,
                                        resourcestr, self.verb)
-            elif self.locks[r] == assignee:
+
+        return resources, multi
+
+    def _lock(self, caller, assignee, resourcestr):
+        resources, multi = self.getlocks(resourcestr)
+        # iterate over all resources once to check for errors
+        for r in resources:
+            if self.locks[r] == assignee:
                 raise LockBotException("%s already hold the lock for resource %s" %
                                        ('you' if self.locks[r] == caller else assignee, r),
                                        resourcestr, self.verb)
@@ -175,12 +181,9 @@ class LockBotBrain(object):
 
     def unregister(self, nick, channel, resourcestr):
         """remove a resource from the database"""
-        resources, multi = self.splitResources(resourcestr)
+        resources, multi = self.getlocks(resourcestr)
         for r in resources:
-            if r not in self.locks.keys():
-                raise LockBotException('ERROR, unrecognized resource "%s"' % r,
-                                       resourcestr, self.verb)
-            elif self.locks[r]:
+            if self.locks[r]:
                 raise LockBotException('ERROR, resource "%s" is locked by %s' %
                                        (r, self.locks[r]),
                                        resourcestr, self.verb)
@@ -196,14 +199,10 @@ class LockBotBrain(object):
 
     def unlock(self, nick, channel, resourcestr):
         """release the resource lock"""
-        resources, multi = self.splitResources(resourcestr)
-        resources = [self.getlock(r) for r in resources]
+        resources, multi = self.getlocks(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
-            if r not in self.locks.keys():
-                raise LockBotException('ERROR: unrecognized resource "%s"' % r,
-                                       resourcestr, self.verb)
-            elif self.locks[r] == '':
+            if self.locks[r] == '':
                 raise LockBotException("%s is already free" % r,
                                        resourcestr, self.verb)
             elif self.locks[r] != nick:
@@ -228,13 +227,9 @@ class LockBotBrain(object):
 
     def freelock(self, nick, channel, resourcestr):
         """release a resource lock even if the caller does not hold the lock (USE WITH CAUTION)"""
-        resources, multi = self.splitResources(resourcestr)
-        resources = [self.getlock(r) for r in resources]
+        resources, multi = self.getlocks(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
-            if r not in self.locks.keys():
-                raise LockBotException('ERROR: unrecognized resource "%s"' % r,
-                                       resourcestr, self.verb)
             if not self.locks[r]:
                 raise LockBotException('ERROR: resource %s is already unlocked' % r,
                                        resourcestr, self.verb)
