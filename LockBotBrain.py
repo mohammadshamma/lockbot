@@ -42,10 +42,18 @@ class Lock(object):
     def waiters(self):
         return self._waiters
 
-    @waiters.setter
-    def waiters(self, waiters):
-        self._waiters = waiters
+    def wait(self, waiter):
+        if waiter not in self._waiters:
+            self._waiters.append(waiter)
         self.sync()
+
+    def popwaiter(self):
+        if not self._waiters:
+            return None
+        waiter = self._waiters.pop(0)
+        self.sync()
+
+        return waiter
 
     def fromstr(self, lockstr):
         if not lockstr:
@@ -55,10 +63,10 @@ class Lock(object):
         return flds[0], flds[1:]
 
     def tostr(self):
-        return ','.join([self.owner] + self.waiters)
+        return ','.join([self.owner] + self._waiters)
 
     def sync(self):
-        self.db[name] = self.tostr()
+        self.db[self.name] = self.tostr()
 
 class LockDB(object):
     def __init__(self, path):
@@ -158,6 +166,7 @@ class LockBotBrain(object):
             ('@BOTNAME@:\s*assignlock\s+(.*)\s+(.*)$',  self.assignlock),
             ('@BOTNAME@:\s*freelock\((.*)\)$',          self.freelock),
             ('@BOTNAME@:\s*freelock\s+(.*)$',           self.freelock),
+            ('^\s*(?:@BOTNAME@:)?\s*waitlock\s+(.*)$',  self.waitlock),
             ('@BOTNAME@:\s*register\((.*)\)$',          self.register),
             ('@BOTNAME@:\s*register\s+(.*)$',           self.register),
             ('@BOTNAME@:\s*unregister\((.*)\)$',        self.unregister),
@@ -202,27 +211,39 @@ class LockBotBrain(object):
 
         return resources, multi
 
-    def _lock(self, caller, assignee, resourcestr):
+    def _lock(self, caller, assignee, resourcestr, wait=False):
         resources, multi = self.getlocks(resourcestr)
+        waiters = []
         # iterate over all resources once to check for errors
         for r in resources:
             if self.locks[r].owner == assignee:
                 raise LockBotException("%s already hold the lock for resource %s" %
-                                       ('you' if self.locks[r] == caller else assignee, r),
+                                       ('you' if self.locks[r].owner == caller else assignee, r),
                                        resourcestr, self.verb)
             elif self.locks[r].owner and self.locks[r].owner != assignee:
-                raise LockBotException("DENIED, %s is already locked by %s" %
-                                       (r, self.locks[r]),
-                                       resourcestr, self.verb)
+                if wait:
+                    waiters.append(r)
+                else:
+                    raise LockBotException("DENIED, %s is already locked by %s" %
+                                           (r, self.locks[r].owner), resourcestr, self.verb)
 
         # all clear, perform lock
+        owned = []
         for r in resources:
-            self.locks[r].owner = assignee
-        return "%s: GRANTED, resource%s %s %s all yours" %  (assignee,
-                                                             's' if multi else '',
-                                                             ', '.join(resources),
-                                                             'are' if multi else 'is',
-                                                             )
+            if r in waiters:
+                self.locks[r].wait(assignee)
+            else:
+                self.locks[r].owner = assignee
+                owned.append(r)
+        msg = ''
+        if owned:
+            msg = "%s: GRANTED, %s owns %s" %  (caller, assignee, ', '.join(owned))
+            if waiters:
+                msg += " (still waiting for %s)" % ', '.join(waiters)
+        elif waiters:
+            msg = '%s: WAITING for %s' % (caller, ', '.join(waiters))
+
+        return msg
 
     def lock(self, nick, channel, resourcestr):
         """take hold of a lock on a resource"""
@@ -277,15 +298,19 @@ class LockBotBrain(object):
                                        resourcestr, self.verb)
 
         # all clear, perform unlock
+        msgs = [(channel, "%s: RELEASED, resource%s %s %s free" % (nick,
+                                                                   's' if multi else '',
+                                                                   ', '.join(resources),
+                                                                   'are' if multi else 'is',
+                                                                   ))]
         for r in resources:
-            self.locks[r].owner = ''
-        return (channel,
-                    "%s: RELEASED, resource%s %s %s free" %
-                    (nick,
-                     's' if multi else '',
-                     ', '.join(resources),
-                     'are' if multi else 'is',
-                     ))
+            lock = self.locks[r]
+            lock.owner = ''
+            assignee = lock.popwaiter()
+            if assignee:
+                msgs += [(channel, '\n' + self._lock(nick, assignee, r))]
+
+        return msgs
 
     def assignlock(self, nick, channel, assignee, resourcestr):
         """assign a resource lock to someone else other than the caller"""
@@ -310,12 +335,21 @@ class LockBotBrain(object):
                   ))]
 
         for r in resources:
-            lockowner = self.locks[r].owner
-            self.locks[r].owner = ''
+            l = self.locks[r]
+            lockowner = l.owner
+            l.owner = ''
             msgs += [(channel,
                       "%s: your lock on %s has been released by %s" %
                       (lockowner, r, nick))]
+            assignee = l.popwaiter()
+            if assignee:
+                msgs += [(channel, self._lock(nick, assignee, r))]
+
         return msgs
+
+    def waitlock(self, nick, channel, resourcestr):
+        """try to take the lock, or get on queue if it is currently locked"""
+        return (channel, self._lock(nick, nick, resourcestr, wait=True))
 
     def status(self, nick, channel):
         """list locked resources and their owners"""
@@ -325,8 +359,13 @@ class LockBotBrain(object):
         else:
             messages  = []
             messages += [(channel, "Status of locked resources:")]
-            messages += [(channel, "  resource:%s owner:%s" % (k, self.locks[k].owner))
-                         for k in lockeditems]
+            for k in lockeditems:
+                l = self.locks[k]
+                msg = "  resource: %s owner: %s" % (k, l.owner)
+                if l.waiters:
+                    msg += " waiters: %s" % ','.join(l.waiters)
+                messages += [(channel, msg)]
+
             return messages
 
     def listfree(self, nick, channel):
