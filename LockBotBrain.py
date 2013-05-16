@@ -47,10 +47,13 @@ class Lock(object):
             self._waiters.append(waiter)
         self.sync()
 
-    def popwaiter(self):
+    def popwaiter(self, waiter=None):
         if not self._waiters:
             return None
-        waiter = self._waiters.pop(0)
+        if not waiter:
+            waiter = self._waiters.pop(0)
+        else:
+            self._waiters.remove(waiter)
         self.sync()
 
         return waiter
@@ -246,10 +249,22 @@ class LockBotBrain(object):
             if waiters:
                 msg += " (still waiting for %s)" % ', '.join(waiters)
         elif waiters:
-            wmsg = ['%s (owner: %s)' % (w, self.locks[w].owner) for w in waiters]
+            wmsg = [self.lockstatus(w) for w in waiters]
             msg = '%s: WAITING for %s' % (caller, ', '.join(wmsg))
 
         return msg
+
+    def lockstatus(self, name):
+        lock = self.locks[name]
+        status = ''
+        if lock.owner:
+            status = 'owner: ' + lock.owner
+        if lock.waiters:
+            status += ' waiters: ' + ','.join(lock.waiters)
+        if status:
+            return '%s (%s)' % (name, status)
+
+        return self.name
 
     def lock(self, nick, channel, resourcestr):
         """take hold of a lock on a resource"""
@@ -295,28 +310,43 @@ class LockBotBrain(object):
         resources, multi = self.getlocks(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
-            if self.locks[r].owner == '':
-                raise LockBotException("%s is already free" % r,
-                                       resourcestr, self.verb)
-            elif self.locks[r].owner != nick:
+            l = self.locks[r]
+            if not l.owner:
+                raise LockBotException("%s is already free" % r, resourcestr,
+                                       self.verb)
+            elif l.owner != nick and nick not in l.waiters:
                 raise LockBotException("DENIED, %s holds the lock on %s" %
                                        (self.locks[r].owner, r),
                                        resourcestr, self.verb)
 
         # all clear, perform unlock
-        msgs = [(channel, "%s: RELEASED, resource%s %s %s free" % (nick,
-                                                                   's' if multi else '',
-                                                                   ', '.join(resources),
-                                                                   'are' if multi else 'is',
-                                                                   ))]
-        for r in resources:
-            lock = self.locks[r]
-            lock.owner = ''
-            assignee = lock.popwaiter()
-            if assignee:
-                msgs += [(channel, '\n' + self._lock(nick, assignee, r))]
+        owned = [r for r in resources if self.locks[r].owner == nick]
+        waiters = [r for r in resources if nick in self.locks[r].waiters]
+        msgs = []
+        if owned:
+            multi = len(owned) > 1
+            msgs = ["%s: RELEASED, resource%s %s %s free" % (nick,
+                                                             's' if multi else '',
+                                                             ', '.join(owned),
+                                                             'are' if multi else 'is',
+                                                             )]
+            for r in owned:
+                lock = self.locks[r]
+                lock.owner = ''
+                assignee = lock.popwaiter()
+                if assignee:
+                    msgs += [self._lock(assignee, assignee, r)]
 
-        return msgs
+        if waiters:
+            multi = len(owned) > 1
+            msgs = ["%s: GAVE UP, no longer waiting for resource%s %s" % (nick,
+                                                             's' if multi else '',
+                                                             ', '.join(waiters)
+                                                             )]
+            for r in waiters:
+                self.locks[r].popwaiter(nick)
+
+        return [(channel, msg) for msg in msgs]
 
     def assignlock(self, nick, channel, assignee, resourcestr):
         """assign a resource lock to someone else other than the caller"""
