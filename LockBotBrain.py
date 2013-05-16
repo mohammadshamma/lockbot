@@ -158,15 +158,16 @@ class LockBotBrain(object):
 
     def getRules(self):
         rules = [
-            ('^\s*(?:@BOTNAME@:)?\s*lock\((.*)\)$',     self.lock),
-            ('^\s*(?:@BOTNAME@:)?\s*lock\s+(.*)$',      self.lock),
+            ('^\s*(?:@BOTNAME@:)?\s*trylock\((.*)\)$',  self.lock),
+            ('^\s*(?:@BOTNAME@:)?\s*trylock\s+(.*)$',   self.lock),
             ('^\s*(?:@BOTNAME@:)?\s*unlock\((.*)\)$',   self.unlock),
             ('^\s*(?:@BOTNAME@:)?\s*unlock\s+(.*)$',    self.unlock),
             ('@BOTNAME@:\s*assignlock\((.*?),(.*)\)$',  self.assignlock),
             ('@BOTNAME@:\s*assignlock\s+(.*)\s+(.*)$',  self.assignlock),
             ('@BOTNAME@:\s*freelock\((.*)\)$',          self.freelock),
             ('@BOTNAME@:\s*freelock\s+(.*)$',           self.freelock),
-            ('^\s*(?:@BOTNAME@:)?\s*waitlock\s+(.*)$',  self.waitlock),
+            ('^\s*(?:@BOTNAME@:)?\s*lock\((.*)\)$',     self.waitlock),
+            ('^\s*(?:@BOTNAME@:)?\s*lock\s+(.*)$',      self.waitlock),
             ('@BOTNAME@:\s*register\((.*)\)$',          self.register),
             ('@BOTNAME@:\s*register\s+(.*)$',           self.register),
             ('@BOTNAME@:\s*unregister\((.*)\)$',        self.unregister),
@@ -237,7 +238,11 @@ class LockBotBrain(object):
                 owned.append(r)
         msg = ''
         if owned:
-            msg = "%s: GRANTED, %s owns %s" %  (caller, assignee, ', '.join(owned))
+            if caller == assignee:
+                own = "you own"
+            else:
+                own = assignee + " owns"
+            msg = "%s: GRANTED, %s %s" %  (caller, own, ', '.join(owned))
             if waiters:
                 msg += " (still waiting for %s)" % ', '.join(waiters)
         elif waiters:
