@@ -19,6 +19,28 @@ class LockBotException(Exception):
         self.resourcestr = resourcestr
         self.verb = verb
 
+class LockDB(object):
+    def __init__(self, path):
+        self.db = dumbdbm.open(path)
+
+    def keys(self):
+        return self.db.keys()
+
+    def items(self):
+        return self.db.items()
+
+    def __iter__(self):
+        return self.db.__iter__()
+
+    def __len__(self):
+        return len(self.keys())
+
+    def __getitem__(self, name):
+        return self.db[name]
+
+    def __setitem__(self, name, val):
+        self.db[name] = val
+
 class LockBotBrain(object):
 
     def __init__(self, nickname, dbdir):
@@ -27,7 +49,7 @@ class LockBotBrain(object):
             os.mkdir(dbdir)
         dbpath = os.path.join(dbdir, DBNAME)
 
-        self.locks = dumbdbm.open(dbpath)
+        self.locks = LockDB(dbpath)
         self.nickname = nickname
         self.rules = self.interpolateRules(nickname)
         self.logger = Logger.Logger()
@@ -130,7 +152,7 @@ class LockBotBrain(object):
         resources, multi = self.splitResources(resourcestr)
         resources = [self.getlock(r) for r in resources]
         for r in resources:
-            if r not in self.locks.keys():
+            if r not in self.locks:
                 raise LockBotException('ERROR: unrecognized resource "%s"' % r,
                                        resourcestr, self.verb)
 
@@ -166,7 +188,7 @@ class LockBotBrain(object):
         """add a new resource to the database"""
         resources, multi = self.splitResources(resourcestr)
         for r in resources:
-            if r in self.locks.keys():
+            if r in self.locks:
                 raise LockBotException('ERROR, resource "%s" is already registered' % r,
                                        resourcestr, self.verb)
 
