@@ -241,7 +241,8 @@ class LockBotBrain(object):
             if waiters:
                 msg += " (still waiting for %s)" % ', '.join(waiters)
         elif waiters:
-            msg = '%s: WAITING for %s' % (caller, ', '.join(waiters))
+            wmsg = ['%s (owner: %s)' % (w, self.locks[w].owner) for w in waiters]
+            msg = '%s: WAITING for %s' % (caller, ', '.join(wmsg))
 
         return msg
 
