@@ -19,6 +19,47 @@ class LockBotException(Exception):
         self.resourcestr = resourcestr
         self.verb = verb
 
+class Lock(object):
+    def __init__(self, db, name, lockstr):
+        self.db = db
+        self.name = name
+        self.lockstr = lockstr
+
+        owner, waiters = self.fromstr(lockstr)
+        self._owner = owner
+        self._waiters = waiters
+
+    @property
+    def owner(self):
+        return self._owner
+
+    @owner.setter
+    def owner(self, owner):
+        self._owner = owner
+        self.sync()
+
+    @property
+    def waiters(self):
+        return self._waiters
+
+    @waiters.setter
+    def waiters(self, waiters):
+        self._waiters = waiters
+        self.sync()
+
+    def fromstr(self, lockstr):
+        if not lockstr:
+            return '', []
+        flds = lockstr.split(',')
+
+        return flds[0], flds[1:]
+
+    def tostr(self):
+        return ','.join([self.owner] + self.waiters)
+
+    def sync(self):
+        self.db[name] = self.tostr()
+
 class LockDB(object):
     def __init__(self, path):
         self.db = dumbdbm.open(path)
@@ -27,7 +68,7 @@ class LockDB(object):
         return self.db.keys()
 
     def items(self):
-        return self.db.items()
+        return [(k, Lock(self.db, k, v)) for k, v in self.db.items()]
 
     def __iter__(self):
         return self.db.__iter__()
@@ -36,10 +77,13 @@ class LockDB(object):
         return len(self.keys())
 
     def __getitem__(self, name):
-        return self.db[name]
+        return Lock(self.db, name, self.db[name])
 
-    def __setitem__(self, name, val):
-        self.db[name] = val
+    def __setitem__(self, name, lock):
+        self.db[name] = val.tostr()
+
+    def __delitem__(self, name):
+        del self.db[name]
 
 class LockBotBrain(object):
 
@@ -162,18 +206,18 @@ class LockBotBrain(object):
         resources, multi = self.getlocks(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
-            if self.locks[r] == assignee:
+            if self.locks[r].owner == assignee:
                 raise LockBotException("%s already hold the lock for resource %s" %
                                        ('you' if self.locks[r] == caller else assignee, r),
                                        resourcestr, self.verb)
-            elif self.locks[r] and self.locks[r] != assignee:
+            elif self.locks[r].owner and self.locks[r].owner != assignee:
                 raise LockBotException("DENIED, %s is already locked by %s" %
                                        (r, self.locks[r]),
                                        resourcestr, self.verb)
 
         # all clear, perform lock
         for r in resources:
-            self.locks[r] = assignee
+            self.locks[r].owner = assignee
         return "%s: GRANTED, resource%s %s %s all yours" %  (assignee,
                                                              's' if multi else '',
                                                              ', '.join(resources),
@@ -194,7 +238,7 @@ class LockBotBrain(object):
 
         # all clear, register resources
         for r in resources:
-            self.locks[r] = ''
+            self.locks[r] = Lock('')
         return (channel,
             "%s: registered resource%s %s" %
                 (nick,
@@ -224,17 +268,17 @@ class LockBotBrain(object):
         resources, multi = self.getlocks(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
-            if self.locks[r] == '':
+            if self.locks[r].owner == '':
                 raise LockBotException("%s is already free" % r,
                                        resourcestr, self.verb)
-            elif self.locks[r] != nick:
+            elif self.locks[r].owner != nick:
                 raise LockBotException("DENIED, %s holds the lock on %s" %
-                                       (self.locks[r], r),
+                                       (self.locks[r].owner, r),
                                        resourcestr, self.verb)
 
         # all clear, perform unlock
         for r in resources:
-            self.locks[r] = ''
+            self.locks[r].owner = ''
         return (channel,
                     "%s: RELEASED, resource%s %s %s free" %
                     (nick,
@@ -252,7 +296,7 @@ class LockBotBrain(object):
         resources, multi = self.getlocks(resourcestr)
         # iterate over all resources once to check for errors
         for r in resources:
-            if not self.locks[r]:
+            if not self.locks[r].owner:
                 raise LockBotException('ERROR: resource %s is already unlocked' % r,
                                        resourcestr, self.verb)
 
@@ -266,8 +310,8 @@ class LockBotBrain(object):
                   ))]
 
         for r in resources:
-            lockowner = self.locks[r]
-            self.locks[r] = ''
+            lockowner = self.locks[r].owner
+            self.locks[r].owner = ''
             msgs += [(channel,
                       "%s: your lock on %s has been released by %s" %
                       (lockowner, r, nick))]
@@ -275,19 +319,19 @@ class LockBotBrain(object):
 
     def status(self, nick, channel):
         """list locked resources and their owners"""
-        lockeditems = sorted([item[0] for item in self.locks.items() if item[1]])
+        lockeditems = sorted([item[0] for item in self.locks.items() if item[1].owner])
         if len(lockeditems) == 0:
             return (channel, "There are no locked resources")
         else:
             messages  = []
             messages += [(channel, "Status of locked resources:")]
-            messages += [(channel, "  resource:%s owner:%s" % (k, self.locks[k]))
+            messages += [(channel, "  resource:%s owner:%s" % (k, self.locks[k].owner))
                          for k in lockeditems]
             return messages
 
     def listfree(self, nick, channel):
         """list unlocked resources"""
-        freeitems = [item[0] for item in self.locks.items() if not item[1]]
+        freeitems = [item[0] for item in self.locks.items() if not item[1].owner]
         if len(freeitems) == 0:
             return (channel, "There are no unlocked resources")
         else:
