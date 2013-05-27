@@ -20,7 +20,7 @@ class LockBotException(Exception):
         self.verb = verb
 
 class Lock(object):
-    def __init__(self, db, name, lockstr):
+    def __init__(self, db, name, lockstr=''):
         self.db = db
         self.name = name
         self.lockstr = lockstr
@@ -75,6 +75,9 @@ class LockDB(object):
     def __init__(self, path):
         self.db = dumbdbm.open(path)
 
+    def add(self, name):
+        self[name] = Lock(self.db, name)
+
     def keys(self):
         return self.db.keys()
 
@@ -91,7 +94,7 @@ class LockDB(object):
         return Lock(self.db, name, self.db[name])
 
     def __setitem__(self, name, lock):
-        self.db[name] = val.tostr()
+        self.db[name] = lock.tostr()
 
     def __delitem__(self, name):
         del self.db[name]
@@ -280,7 +283,7 @@ class LockBotBrain(object):
 
         # all clear, register resources
         for r in resources:
-            self.locks[r] = Lock('')
+            self.locks.add(r)
         return (channel,
             "%s: registered resource%s %s" %
                 (nick,
