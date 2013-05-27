@@ -413,7 +413,7 @@ class LockBotBrain(object):
         if len(freeitems) == 0:
             return (channel, "There are no unlocked resources")
         else:
-            return (channel, "Unlocked resources: " + ', '.join(freeitems))
+            return (channel, "Unlocked resources: " + ', '.join(sorted(freeitems)))
 
     def list(self, nick, channel):
         """list all registered resources"""
