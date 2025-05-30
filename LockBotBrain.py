@@ -1,6 +1,6 @@
 import re
 import os
-import dumbdbm
+from dbm import dumb
 import inspect
 
 import Levenshtein
@@ -20,12 +20,12 @@ class LockBotException(Exception):
         self.verb = verb
 
 class Lock(object):
-    def __init__(self, db, name, lockstr=''):
+    def __init__(self, db, name, lockstr=b''): # name is str, lockstr is bytes from db
         self.db = db
-        self.name = name
-        self.lockstr = lockstr
+        self.name = name # Should be string
+        self.lockstr = lockstr.decode('utf-8') if isinstance(lockstr, bytes) else lockstr
 
-        owner, waiters = self.fromstr(lockstr)
+        owner, waiters = self.fromstr(self.lockstr)
         self._owner = owner
         self._waiters = waiters
 
@@ -58,46 +58,59 @@ class Lock(object):
 
         return waiter
 
-    def fromstr(self, lockstr):
+    def fromstr(self, lockstr): # lockstr is string
         if not lockstr:
             return '', []
         flds = lockstr.split(',')
 
-        return flds[0], flds[1:]
+        return flds[0], flds[1:] # owner and waiters are strings
 
-    def tostr(self):
-        return ','.join([self.owner] + self._waiters)
+    def tostr(self): # Returns string
+        return ','.join([self.owner] + self._waiters) # owner and waiters must be strings
 
     def sync(self):
-        self.db[self.name] = self.tostr()
+        # self.name is string, needs to be encoded for db key
+        # self.tostr() returns string, dbm will encode it for value
+        self.db[self.name.encode('utf-8')] = self.tostr()
 
 class LockDB(object):
     def __init__(self, path):
-        self.db = dumbdbm.open(path)
+        # path is string, DBNAME is string. dumb.open takes string path.
+        self.db = dumb.open(path)
 
-    def add(self, name):
-        self[name] = Lock(self.db, name)
+    def add(self, name): # name is string
+        # Lock expects name as string. Lock.sync() will handle encoding for db.
+        self[name] = Lock(self.db, name) # Lock __init__ gets string name, empty lockstr
 
-    def keys(self):
-        return self.db.keys()
+    def keys(self): # Returns list of strings
+        return [k.decode('utf-8') for k in self.db.keys()]
 
-    def items(self):
-        return [(k, Lock(self.db, k, v)) for k, v in self.db.items()]
+    def items(self): # Returns list of (str, Lock) tuples
+        # k is bytes, v is bytes from db
+        return [(k.decode('utf-8'), Lock(self.db, k.decode('utf-8'), v))
+                for k, v in self.db.items()]
 
-    def __iter__(self):
-        return self.db.__iter__()
+    def __iter__(self): # Should iterate over string keys
+        for k in self.db.keys():
+            yield k.decode('utf-8')
 
     def __len__(self):
-        return len(self.keys())
+        return len(self.db.keys()) # Underlying db length
 
-    def __getitem__(self, name):
-        return Lock(self.db, name, self.db[name])
+    def __getitem__(self, name): # name is string
+        # Fetch from db using encoded name. Lock expects string name and bytes lockstr.
+        return Lock(self.db, name, self.db[name.encode('utf-8')])
 
-    def __setitem__(self, name, lock):
-        self.db[name] = lock.tostr()
+    def __setitem__(self, name, lock): # name is string, lock is Lock instance
+        # lock.sync() is responsible for writing to db with encoded key
+        # This explicit __setitem__ might be redundant if Lock.sync() is always used.
+        # However, direct assignment like self.locks[key] = new_lock might use this.
+        # Ensure Lock.name is string, Lock.tostr() is string.
+        self.db[name.encode('utf-8')] = lock.tostr()
 
-    def __delitem__(self, name):
-        del self.db[name]
+
+    def __delitem__(self, name): # name is string
+        del self.db[name.encode('utf-8')]
 
 class LockBotBrain(object):
 
@@ -116,8 +129,10 @@ class LockBotBrain(object):
     def interpolateRules(self, nickname):
         rules = self.getRules()
         irules = []
+        # The placeholder @BOTNAME@ in rules is meant to be replaced by the fully qualified mention, e.g., "@testbot"
+        mention_name = '@' + nickname 
         for rule in rules:
-            irule = (rule[0].replace('@BOTNAME@', nickname),
+            irule = (rule[0].replace('@BOTNAME@', mention_name),
                      rule[1])
             irules.append(irule)
         return irules
@@ -149,7 +164,8 @@ class LockBotBrain(object):
         for regexp, handler in self.rules:
             m = re.match(regexp, msg)
             if m:
-                args = m.groups()
+                # Strip whitespace from all captured arguments
+                args = [arg.strip() for arg in m.groups()]
                 self.verb = handler.__name__ + 'ed'
                 try:
                     response = handler(cleannick(nick), channel, *args)
@@ -187,11 +203,13 @@ class LockBotBrain(object):
         ]
         return rules
 
-    def getlock(self, name):
-        if name in self.locks:
+    def getlock(self, name): # name is string
+        # self.locks is LockDB. Iterating it or calling keys() gives strings.
+        if name in self.locks: # checks if string `name` is in string keys
             return name
 
-        ratios = [(Levenshtein.ratio(name, l), l) for l in self.locks]
+        # Levenshtein.ratio needs two strings. self.locks.keys() now returns strings.
+        ratios = [(Levenshtein.ratio(name, l), l) for l in self.locks.keys()]
         best = max(ratios)
 
         if best[0] < 0.5 or len([c for c in ratios if c[0] == best[0]]) > 1:
@@ -199,75 +217,87 @@ class LockBotBrain(object):
 
         return best[1]
 
-    def splitResources(self, resourcestr):
-        results = [i.strip() for i in resourcestr.split(',')]
+    def splitResources(self, resourcestr): # resourcestr is string
+        results = [i.strip() for i in resourcestr.split(',')] # results are strings
         if '' in results:
+            # self.verb might be None if processPrivMsg hasn't set it for this path yet
+            current_verb = self.verb if self.verb else "processing"
             raise LockBotException('ERROR: empty resource names are not allowed',
-                                   resourcestr, self.verb)
+                                   resourcestr, current_verb)
         if len(results) != len(set(results)):
-            raise LockBotException('ERROR: duplicate resource name')
-        return results, len(results) > 1
+            current_verb = self.verb if self.verb else "processing"
+            raise LockBotException('ERROR: duplicate resource name',
+                                   resourcestr, current_verb)
+        return results, len(results) > 1 # results are list of strings
 
-    def getlocks(self, resourcestr):
-        resources, multi = self.splitResources(resourcestr)
-        resources = [self.getlock(r) for r in resources]
-        for r in resources:
-            if r not in self.locks:
-                raise LockBotException('ERROR: unrecognized resource "%s"' % r,
+    def getlocks(self, resourcestr): # resourcestr is string
+        resources, multi = self.splitResources(resourcestr) # resources are list of strings
+        resources = [self.getlock(r) for r in resources] # r is string, self.getlock returns string
+        for r_name in resources: # r_name is string
+            # self.locks (LockDB) __contains__ will check string keys
+            if r_name not in self.locks:
+                raise LockBotException('ERROR: unrecognized resource "%s"' % r_name,
                                        resourcestr, self.verb)
 
-        return resources, multi
+        return resources, multi # resources are list of strings
 
-    def _lock(self, caller, assignee, resourcestr, wait=False):
-        resources, multi = self.getlocks(resourcestr)
+    def _lock(self, caller, assignee, resourcestr, wait=False): # caller, assignee, resourcestr are strings
+        if not assignee: # Disallow empty string assignee
+            raise LockBotException("ERROR: assignee cannot be empty", resourcestr, self.verb if self.verb else "locking")
+        
+        resources, multi = self.getlocks(resourcestr) # resources are list of strings
         waiters = []
         # iterate over all resources once to check for errors
         for r in resources:
-            if self.locks[r].owner == assignee:
+            # self.locks[r] returns a Lock instance. Lock.owner should be string.
+            # r is string.
+            lock_instance = self.locks[r] # r is string, __getitem__ handles it
+            if lock_instance.owner == assignee: # assignee is string
                 raise LockBotException("%s already hold the lock for resource %s" %
-                                       ('you' if self.locks[r].owner == caller else assignee, r),
+                                       ('you' if lock_instance.owner == caller else assignee, r),
                                        resourcestr, self.verb)
-            elif self.locks[r].owner and self.locks[r].owner != assignee:
+            elif lock_instance.owner and lock_instance.owner != assignee:
                 if wait:
-                    waiters.append(r)
+                    waiters.append(r) # r is string
                 else:
                     raise LockBotException("DENIED, %s is already locked by %s" %
-                                           (r, self.locks[r].owner), resourcestr, self.verb)
+                                           (r, lock_instance.owner), resourcestr, self.verb)
 
         # all clear, perform lock
-        owned = []
-        for r in resources:
-            if r in waiters:
-                self.locks[r].wait(assignee)
+        owned = [] # list of strings
+        for r in resources: # r is string
+            if r in waiters: # waiters contains strings
+                self.locks[r].wait(assignee) # assignee is string
             else:
-                self.locks[r].owner = assignee
+                self.locks[r].owner = assignee # assignee is string
                 owned.append(r)
         msg = ''
-        if owned:
-            if caller == assignee:
+        if owned: # owned contains strings
+            if caller == assignee: # caller, assignee are strings
                 own = "you own"
             else:
-                own = assignee + " owns"
-            msg = "%s: GRANTED, %s %s" %  (caller, own, ', '.join(owned))
-            if waiters:
+                own = assignee + " owns" # string concatenation
+            msg = "%s: GRANTED, %s %s" %  (caller, own, ', '.join(owned)) # All strings
+            if waiters: # waiters contains strings
                 msg += " (still waiting for %s)" % ', '.join(waiters)
-        elif waiters:
-            wmsg = [self.lockstatus(w) for w in waiters]
-            msg = '%s: WAITING for %s' % (caller, ', '.join(wmsg))
+        elif waiters: # waiters contains strings
+            wmsg = [self.lockstatus(w) for w in waiters] # w is string
+            msg = '%s: WAITING for %s' % (caller, ', '.join(wmsg)) # All strings
 
-        return msg
+        return msg # msg is string
 
-    def lockstatus(self, name):
-        lock = self.locks[name]
+    def lockstatus(self, name): # name is string
+        lock = self.locks[name] # name is string, __getitem__ handles it
         status = ''
+        # Lock attributes (owner, waiters) should be strings
         if lock.owner:
             status = 'owner: ' + lock.owner
         if lock.waiters:
-            status += ' waiters: ' + ','.join(lock.waiters)
+            status += ' waiters: ' + ','.join(lock.waiters) # waiters are strings
         if status:
-            return '%s (%s)' % (name, status)
+            return '%s (%s)' % (name, status) # name is string
 
-        return self.name
+        return name # name is string
 
     def lock(self, nick, channel, resourcestr):
         """take hold of a lock on a resource"""
@@ -294,10 +324,16 @@ class LockBotBrain(object):
         """remove a resource from the database"""
         resources, multi = self.getlocks(resourcestr)
         for r in resources:
-            if self.locks[r]:
+            lock_instance = self.locks[r]
+            if lock_instance.owner: # Check if there is an actual owner
                 raise LockBotException('ERROR, resource "%s" is locked by %s' %
-                                       (r, self.locks[r]),
+                                       (r, lock_instance.owner), # Use lock_instance.owner for msg
                                        resourcestr, self.verb)
+            # If you want to prevent unregistering a resource that has waiters, add:
+            # elif lock_instance.waiters:
+            #     raise LockBotException('ERROR, resource "%s" has waiters and cannot be unregistered' % r, 
+            #                            resourcestr, self.verb)
+
 
         # all clear, unregister resources
         for r in resources:
@@ -351,7 +387,7 @@ class LockBotBrain(object):
 
         return [(channel, msg) for msg in msgs]
 
-    def assignlock(self, nick, channel, assignee, resourcestr):
+    def assignlock(self, nick, channel, resourcestr, assignee): # Swapped resourcestr and assignee
         """assign a resource lock to someone else other than the caller"""
         return (channel, self._lock(nick, assignee, resourcestr))
 
@@ -436,11 +472,15 @@ class LockBotBrain(object):
             if handler in processedHandlers:
                 continue
             processedHandlers.add(handler)
-            helpTuples.append((handler.__name__ + ' ' +
-                               ' '.join(["<%s>" % arg
-                                         for arg in getCmdArguments(handler)]),
-                               handler.__doc__
-                               ))
+            
+            args_list = getCmdArguments(handler)
+            cmd_args_str = ' '.join(["<%s>" % arg for arg in args_list])
+            cmdpart_key = handler.__name__
+            if cmd_args_str: # Add space only if there are arguments
+                cmdpart_key += ' ' + cmd_args_str
+                
+            helpTuples.append((cmdpart_key, handler.__doc__))
+
             if handler.__name__ == 'help':
                 break
 
@@ -457,5 +497,5 @@ class LockBotBrain(object):
 
     def defaulthandler(self, nick, channel):
         messages = [(channel,
-                     "%s: Unrecognized command, try '%s: help'" % (nick, self.nickname))]
+                     "%s: Unrecognized command, try '@%s: help'" % (nick, self.nickname))]
         return messages
