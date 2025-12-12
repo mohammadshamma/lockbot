@@ -1,0 +1,22 @@
+[tool.poetry]
+package-mode = false
+
+[project]
+name = "lockbot"
+version = "0.1.0"
+description = "IRC bot for managing resource locks"
+authors = [
+    {name = "Jules"}
+]
+readme = "README.md"
+requires-python = "^3.10"
+dependencies = [
+    "twisted (>=25.5.0,<26.0.0)",
+    "python-levenshtein (>=0.27.3,<0.28.0)",
+    "pyopenssl (>=25.3.0,<26.0.0)",
+    "service-identity (>=24.2.0,<25.0.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
