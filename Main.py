@@ -1,29 +1,56 @@
-import sys, ConfigParser
+import sys, configparser
+import argparse
+import os
 from twisted.internet import reactor, ssl
 from LockBot import LockBotFactory
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="LockBot IRC Bot")
+    parser.add_argument("config", help="Path to configuration file")
+    parser.add_argument("--daemonize", "-d", action="store_true", help="Run in background as daemon")
+    return parser.parse_args()
+
+def daemonize():
+    if os.fork():
+        sys.exit()
+    os.setsid()
+    if os.fork():
+        sys.exit()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    with open('/dev/null', 'r') as f:
+        os.dup2(f.fileno(), sys.stdin.fileno())
+    with open('/dev/null', 'a+') as f:
+        os.dup2(f.fileno(), sys.stdout.fileno())
+        os.dup2(f.fileno(), sys.stderr.fileno())
+
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.stderr.write("You should pass only one argument "
-                         "(configuration path)\n")
-        sys.exit(1)
-    cfgpath = sys.argv[1]
+    args = parse_args()
+
+    if args.daemonize:
+        daemonize()
+
+    cfgpath = args.config
 
     section='lockbot'
     defaultcfg = {'usessl'  : 'no',
                   'nickname': 'lockbot'}
 
-    cfg = ConfigParser.RawConfigParser(defaultcfg)
+    cfg = configparser.RawConfigParser(defaultcfg)
     cfg.read(cfgpath)
     
-    usessl = cfg.getboolean(section, 'usessl')
+    try:
+        usessl = cfg.getboolean(section, 'usessl')
 
-    server   = cfg.get(section, 'server')
-    port     = cfg.getint(section, 'port')
-    channel  = cfg.get(section, 'channel')
-    nickname = cfg.get(section, 'nickname')
-    dbdir    = cfg.get(section, 'dbdir')
-    password = cfg.get(section, 'password')
+        server   = cfg.get(section, 'server')
+        port     = cfg.getint(section, 'port')
+        channel  = cfg.get(section, 'channel')
+        nickname = cfg.get(section, 'nickname')
+        dbdir    = cfg.get(section, 'dbdir')
+        password = cfg.get(section, 'password')
+    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+        sys.stderr.write(f"Configuration error: {e}\n")
+        sys.exit(1)
 
     lockbotfactory = LockBotFactory('#' + channel,
                                     nickname,

@@ -1,6 +1,6 @@
 import re
 import os
-import dumbdbm
+import dbm.dumb as dumbdbm
 import inspect
 
 import Levenshtein
@@ -14,7 +14,7 @@ def cleannick(nick):
 
 class LockBotException(Exception):
     def __init__(self, msg, resourcestr, verb):
-        super(LockBotException, self).__init__()
+        super(LockBotException, self).__init__(msg)
         self.msg = msg
         self.resourcestr = resourcestr
         self.verb = verb
@@ -79,25 +79,35 @@ class LockDB(object):
         self[name] = Lock(self.db, name)
 
     def keys(self):
-        return self.db.keys()
+        return [k.decode('utf-8') if isinstance(k, bytes) else k for k in self.db.keys()]
 
     def items(self):
-        return [(k, Lock(self.db, k, v)) for k, v in self.db.items()]
+        return [(k.decode('utf-8') if isinstance(k, bytes) else k,
+                 Lock(self.db, k.decode('utf-8') if isinstance(k, bytes) else k,
+                      v.decode('utf-8') if isinstance(v, bytes) else v))
+                for k, v in self.db.items()]
 
     def __iter__(self):
-        return self.db.__iter__()
+        for k in self.db.keys():
+            yield k.decode('utf-8') if isinstance(k, bytes) else k
 
     def __len__(self):
         return len(self.keys())
 
     def __getitem__(self, name):
-        return Lock(self.db, name, self.db[name])
+        val = self.db[name]
+        if isinstance(val, bytes):
+            val = val.decode('utf-8')
+        return Lock(self.db, name, val)
 
     def __setitem__(self, name, lock):
         self.db[name] = lock.tostr()
 
     def __delitem__(self, name):
         del self.db[name]
+
+    def close(self):
+        self.db.close()
 
 class LockBotBrain(object):
 
@@ -112,6 +122,9 @@ class LockBotBrain(object):
         self.rules = self.interpolateRules(nickname)
         self.logger = Logger.Logger()
         self.verb = None
+
+    def close(self):
+        self.locks.close()
 
     def interpolateRules(self, nickname):
         rules = self.getRules()
@@ -164,26 +177,26 @@ class LockBotBrain(object):
 
     def getRules(self):
         rules = [
-            ('^\s*(?:@BOTNAME@:)?\s*trylock\((.*)\)$',  self.lock),
-            ('^\s*(?:@BOTNAME@:)?\s*trylock\s+(.*)$',   self.lock),
-            ('^\s*(?:@BOTNAME@:)?\s*unlock\((.*)\)$',   self.unlock),
-            ('^\s*(?:@BOTNAME@:)?\s*unlock\s+(.*)$',    self.unlock),
-            ('@BOTNAME@:\s*assignlock\((.*?),(.*)\)$',  self.assignlock),
-            ('@BOTNAME@:\s*assignlock\s+(.*)\s+(.*)$',  self.assignlock),
-            ('@BOTNAME@:\s*freelock\((.*)\)$',          self.freelock),
-            ('@BOTNAME@:\s*freelock\s+(.*)$',           self.freelock),
-            ('^\s*(?:@BOTNAME@:)?\s*lock\((.*)\)$',     self.waitlock),
-            ('^\s*(?:@BOTNAME@:)?\s*lock\s+(.*)$',      self.waitlock),
-            ('@BOTNAME@:\s*register\((.*)\)$',          self.register),
-            ('@BOTNAME@:\s*register\s+(.*)$',           self.register),
-            ('@BOTNAME@:\s*unregister\((.*)\)$',        self.unregister),
-            ('@BOTNAME@:\s*unregister\s+(.*)$',         self.unregister),
-            ('@BOTNAME@:\s*status\s*$',                 self.status),
-            ('@BOTNAME@:\s*listlocked\s*$',             self.status),
-            ('@BOTNAME@:\s*listfree\s*$',               self.listfree),
-            ('@BOTNAME@:\s*list\s*$',                   self.list),
-            ('@BOTNAME@:\s*help\s*$',                   self.help),
-            ('@BOTNAME@:.*',                            self.defaulthandler),
+            (r'^\s*(?:@BOTNAME@:)?\s*trylock\((.*)\)$',  self.lock),
+            (r'^\s*(?:@BOTNAME@:)?\s*trylock\s+(.*)$',   self.lock),
+            (r'^\s*(?:@BOTNAME@:)?\s*unlock\((.*)\)$',   self.unlock),
+            (r'^\s*(?:@BOTNAME@:)?\s*unlock\s+(.*)$',    self.unlock),
+            (r'@BOTNAME@:\s*assignlock\((.*?),(.*)\)$',  self.assignlock),
+            (r'@BOTNAME@:\s*assignlock\s+(.*)\s+(.*)$',  self.assignlock),
+            (r'@BOTNAME@:\s*freelock\((.*)\)$',          self.freelock),
+            (r'@BOTNAME@:\s*freelock\s+(.*)$',           self.freelock),
+            (r'^\s*(?:@BOTNAME@:)?\s*lock\((.*)\)$',     self.waitlock),
+            (r'^\s*(?:@BOTNAME@:)?\s*lock\s+(.*)$',      self.waitlock),
+            (r'@BOTNAME@:\s*register\((.*)\)$',          self.register),
+            (r'@BOTNAME@:\s*register\s+(.*)$',           self.register),
+            (r'@BOTNAME@:\s*unregister\((.*)\)$',        self.unregister),
+            (r'@BOTNAME@:\s*unregister\s+(.*)$',         self.unregister),
+            (r'@BOTNAME@:\s*status\s*$',                 self.status),
+            (r'@BOTNAME@:\s*listlocked\s*$',             self.status),
+            (r'@BOTNAME@:\s*listfree\s*$',               self.listfree),
+            (r'@BOTNAME@:\s*list\s*$',                   self.list),
+            (r'@BOTNAME@:\s*help\s*$',                   self.help),
+            (r'@BOTNAME@:.*',                            self.defaulthandler),
         ]
         return rules
 
@@ -427,7 +440,7 @@ class LockBotBrain(object):
         """display this help message"""
 
         def getCmdArguments(handler):
-            return inspect.getargspec(handler)[0][3:]
+            return inspect.getfullargspec(handler)[0][3:]
 
         helpTuples = []
         rules = self.getRules()

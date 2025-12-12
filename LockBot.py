@@ -9,9 +9,13 @@ class LockBot(irc.IRCClient):
         self.brain = None
         self.logger = Logger.Logger()
 
-    def _get_nickname(self):
+    @property
+    def nickname(self):
         return self.factory.nickname
-    nickname = property(_get_nickname)
+
+    @nickname.setter
+    def nickname(self, value):
+        self.factory.nickname = value
 
     def _get_password(self):
         return self.factory.password
